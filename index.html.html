@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CFMIS Judgment Formatter</title>
+<style>
+:root{--ink:#182230;--muted:#667085;--line:#d9dee7;--panel:#f6f8fb;--accent:#244b70;--good:#e8f4ed;--warn:#fff5df}
+*{box-sizing:border-box}body{margin:0;background:#eef2f6;color:var(--ink);font:15px/1.5 "Segoe UI",Arial,sans-serif}
+.wrap{max-width:1100px;margin:28px auto;padding:0 18px}.head{background:#173b5c;color:white;padding:24px 26px;border-radius:12px 12px 0 0}
+h1{margin:0;font-size:25px}.sub{opacity:.85;margin-top:5px}.panel{background:white;border:1px solid var(--line);padding:22px;margin-bottom:16px;border-radius:10px;box-shadow:0 2px 8px #172b4408}
+.head+.panel{border-radius:0 0 10px 10px;border-top:0}h2{font-size:18px;margin:0 0 12px}
+label{display:block;font-weight:600;margin:10px 0 6px}textarea,input,select{width:100%;border:1px solid #cbd3df;border-radius:7px;padding:11px 12px;font:14px "Segoe UI",Arial,sans-serif;color:var(--ink);background:white}
+textarea{min-height:125px;resize:vertical}.hint{font-size:12px;color:var(--muted);margin-top:5px}
+.actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}button{border:0;border-radius:7px;padding:10px 15px;background:var(--accent);color:white;font-weight:600;cursor:pointer}button.secondary{background:#e9eef4;color:#20364b}button.danger{background:#8d3434}button:focus,input:focus,textarea:focus{outline:2px solid #8bb6da;outline-offset:1px}
+.status{margin-top:12px;padding:10px 12px;border-radius:7px;background:var(--panel);color:var(--muted)}.status.error{background:#fff0f0;color:#9a2929}
+.tablewrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border-bottom:1px solid var(--line);padding:9px 8px;text-align:left;vertical-align:middle}th{background:#f5f7fa;white-space:nowrap}td input{min-width:130px;padding:8px}
+.pill{display:inline-block;border-radius:20px;padding:3px 9px;font-size:11px;font-weight:700;background:#e8eef5}.pill.pending{background:#fff0cf;color:#795300}.pill.disposed{background:#e2f2e8;color:#21613a}
+.outputs{display:grid;grid-template-columns:1fr;gap:14px}.outcard{border:1px solid var(--line);border-radius:9px;overflow:hidden}.outtop{padding:10px 13px;background:#f5f7fa;display:flex;justify-content:space-between;align-items:center;gap:10px}.outtop strong{font-size:14px}.paper{padding:28px 24px;background:white;font-family:"Times New Roman",serif;font-size:14pt;line-height:1.45;white-space:pre-wrap;text-align:center}.paper .case{font-weight:bold}.paper .line{font-weight:bold}.paper .title{font-weight:bold;text-transform:none;margin-top:22px}
+.small{font-size:12px;color:var(--muted)}.foot{font-size:12px;color:var(--muted);text-align:center;margin:18px}
+@media(min-width:800px){.outputs{grid-template-columns:1fr 1fr}.paper{min-height:230px}}
+@media print{body{background:white}.wrap{margin:0;max-width:none}.head,.inputpanel,.records,.foot,.outtop button{display:none!important}.panel{border:0;box-shadow:none;padding:0}.outputs{display:block}.outcard{break-inside:avoid;border:0;margin-bottom:24px}.outtop{display:none}.paper{padding:20px 35px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+ <div class="head"><h1>CFMIS Judgment Formatter</h1><div class="sub">Convert CFMIS case rows into the prescribed judgment heading format</div></div>
+ <section class="panel inputpanel">
+  <h2>1. Paste CFMIS data</h2>
+  <label for="raw">Copy one or more rows from CFMIS and paste here</label>
+  <textarea id="raw" placeholder="Paste tab-separated CFMIS rows here. You may also paste pipe-separated rows or a copied table."></textarea>
+  <div class="hint">Expected columns: Case No. | Year | Institution Date | Case Title | … | Court | Status | Date of Disposal. Header rows are ignored. Tabs copied from CFMIS are supported.</div>
+  <div class="actions"><button id="parse">Read / Update Cases</button><button class="secondary" id="sample">Load sample row</button><button class="secondary" id="clear">Clear</button></div>
+  <div id="status" class="status" role="status">No data loaded yet.</div>
+ </section>
+ <section class="panel records">
+  <h2>2. Review case details</h2>
+  <div class="hint">Check the extracted details. The date of disposal is imported for disposed cases. For pending cases, use the date picker if you wish to enter a date of decision.</div>
+  <div class="tablewrap" style="margin-top:12px">
+   <table><thead><tr><th>Case No.</th><th>Year</th><th>Institution date</th><th>Case title</th><th>Status</th><th>Date of disposal / decision</th><th></th></tr></thead><tbody id="rows"><tr><td colspan="7" class="small">No cases loaded.</td></tr></tbody></table>
+  </div>
+  <div class="actions"><button id="generate">Generate judgment headings</button><button class="secondary" id="copyall">Copy all headings</button><button class="secondary" id="print">Print</button></div>
+ </section>
+ <section class="panel">
+  <h2>3. Judgment headings</h2>
+  <div id="outputs" class="outputs"><div class="small">Generated headings will appear here.</div></div>
+ </section>
+ <div class="foot">Local browser tool. Your pasted case data stays in this browser session and is not uploaded to a server.</div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+let cases=[];
+function normDate(v){
+ v=(v||'').trim(); if(!v)return '';
+ let m=v.match(/^(\d{1,2})[-\/ ]([A-Za-z]{3})[-\/ ](\d{2,4})$/);
+ if(m){let months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];let ix=months.findIndex(x=>x.toLowerCase()===m[2].toLowerCase());if(ix>=0){let y=m[3].length===2?'20'+m[3]:m[3];return m[1].padStart(2,'0')+'-'+String(ix+1).padStart(2,'0')+'-'+y;}}
+ m=v.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
+ if(m){let y=m[3].length===2?'20'+m[3]:m[3];return m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0')+'-'+y;}
+ return v;
+}
+function splitLine(line){
+ if(line.includes('\t'))return line.split('\t').map(x=>x.trim());
+ if(line.includes('|'))return line.split('|').map(x=>x.trim());
+ return line.split(/\s{2,}/).map(x=>x.trim());
+}
+function parse(){
+ const lines=$('raw').value.replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean);
+ const parsed=[];
+ for(const line of lines){
+  if(/^\|?\s*-{2,}/.test(line))continue;
+  let p=splitLine(line); if(p[0]==='')p=p.slice(1); if(p[p.length-1]==='')p.pop();
+  if(p.length<4)continue;
+  if(/^(case\s*no|s\.?no|#)$/i.test(p[0])||/^(year)$/i.test(p[1]))continue;
+  const caseNo=p[0]||'',year=p[1]||'',inst=normDate(p[2]||''),title=p[3]||'';
+  // In the CFMIS layout, status is column 9 (zero-based index 8).
+  const status=(p[8]||'').trim();
+  const disposalDate=normDate(p[9]||''); // Date of Disposal is the column immediately after Status.
+  if(!caseNo||!title)continue;
+  const isPending=/pending|under process|in progress/i.test(status);
+  const cleanTitle=title.replace(/\betc\.\s*/gi,'others ').replace(/\s{2,}/g,' ').trim();
+  parsed.push({id:crypto.randomUUID?crypto.randomUUID():String(Math.random()),caseNo,year,inst,title:cleanTitle,status:status||'Not specified',decision:isPending?'':disposalDate,pending:isPending});
+ }
+ cases=parsed; renderRows();
+ $('status').className='status'+(cases.length?'':' error');
+ $('status').textContent=cases.length?`${cases.length} case row(s) read. Review the details below.`:'No valid rows detected. Check that the pasted columns are separated by tabs or vertical bars.';
+}
+function toDateInput(v){
+ const n=normDate(v); const m=n.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+ return m?`${m[3]}-${m[2]}-${m[1]}`:'';
+}
+function fromDateInput(v){
+ const m=(v||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+ return m?`${m[3]}-${m[2]}-${m[1]}`:'';
+}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function renderRows(){
+ const body=$('rows'); if(!cases.length){body.innerHTML='<tr><td colspan="7" class="small">No cases loaded.</td></tr>';return;}
+ body.innerHTML=cases.map((c,i)=>`<tr>
+ <td><input aria-label="Case number" data-i="${i}" data-k="caseNo" value="${esc(c.caseNo)}"></td>
+ <td><input aria-label="Year" data-i="${i}" data-k="year" value="${esc(c.year)}"></td>
+ <td><input aria-label="Institution date" data-i="${i}" data-k="inst" value="${esc(c.inst)}"></td>
+ <td><input aria-label="Case title" style="min-width:210px" data-i="${i}" data-k="title" value="${esc(c.title)}"></td>
+ <td><span class="pill ${c.pending?'pending':'disposed'}">${esc(c.status)}</span></td>
+ <td><input aria-label="Date of disposal or decision" type="date" data-i="${i}" data-k="decision" value="${esc(toDateInput(c.decision))}" ${c.pending?'':'title="Imported from CFMIS; editable if correction is required"'}></td>
+ <td><button class="danger" data-remove="${i}" type="button">Remove</button></td></tr>`).join('');
+ body.querySelectorAll('input[data-i]').forEach(el=>el.addEventListener('input',e=>{let c=cases[+e.target.dataset.i],k=e.target.dataset.k;c[k]=k==='decision'?fromDateInput(e.target.value):e.target.value;if(k==='title')c.title=c.title.replace(/\betc\ \s*/gi,'others ').replace(/\s{2,}/g,' ').trim();}));
+ body.querySelectorAll('[data-remove]').forEach(el=>el.addEventListener('click',()=>{cases.splice(+el.dataset.remove,1);renderRows();}));
+}
+function getHeading(c){
+ const inst=normDate(c.inst)||'________________';
+ const decision=normDate(c.decision)||'________________';
+ const institutionLabel=/neem/i.test(c.caseNo)?'Date of original institution':'Date of institution';
+ const suit=`${c.caseNo}${c.year?' of '+c.year:''}`;
+ return `Suit No ${suit}\n\n${institutionLabel}................${inst}\n\nDate of decision................................${decision}\n\n${c.title}.`;
+}
+function generate(){
+ if(!cases.length){$('status').className='status error';$('status').textContent='Please paste and read CFMIS data first.';return;}
+ $('outputs').innerHTML=cases.map((c,i)=>`<div class="outcard"><div class="outtop"><strong>${esc(c.caseNo)}${c.year?' / '+esc(c.year):''} — ${esc(c.title)}</strong><button class="secondary" data-copy="${i}">Copy this heading</button></div><div class="paper"><div class="case">${esc('Suit No '+c.caseNo+(c.year?' of '+c.year:''))}</div><br><div class="line">${/neem/i.test(c.caseNo)?'Date of original institution':'Date of institution'}................${esc(normDate(c.inst)||'________________')}</div><br><div class="line">Date of decision................................${esc(normDate(c.decision)||'________________')}</div><div class="title">${esc(c.title)}.</div></div></div>`).join('');
+ $('outputs').querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',()=>copyText(getHeading(cases[+b.dataset.copy]),b)));
+}
+async function copyText(t,btn){
+ try{await navigator.clipboard.writeText(t);let old=btn.textContent;btn.textContent='Copied';setTimeout(()=>btn.textContent=old,1200);}
+ catch(e){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();btn.textContent='Copied';}
+}
+$('parse').addEventListener('click',parse);
+$('generate').addEventListener('click',generate);
+$('copyall').addEventListener('click',()=>{if(!cases.length)return;copyText(cases.map(getHeading).join('\n\n\n'),'');});
+$('print').addEventListener('click',()=>window.print());
+$('sample').addEventListener('click',()=>{$('raw').value='176/1\t2026\t09-Jun-26\tFatih Mil Khan VS Nadra\t\tCivil\tCivil Suit\tCivil Judge-XIV\tPending\t\tOther Civil Suits -- Original Jurisdiction Before Civil Judge';parse();});
+$('clear').addEventListener('click',()=>{$('raw').value='';cases=[];renderRows();$('outputs').innerHTML='<div class="small">Generated headings will appear here.</div>';$('status').textContent='Cleared.';$('status').className='status';});
+</script>
+</body></html>
